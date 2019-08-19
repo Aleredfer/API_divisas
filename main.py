@@ -8,6 +8,12 @@ import requests  #para realizar peticiones
 
 DEFAULTPADDING = 4
 
+class APIAccessError(Exception):      #hereda de Exception
+    def __init__(self, cause):
+        Exception.__init__(self)            #llama al constructor de la clase padre
+        self.cause = cause
+
+
 class Exchanger(ttk.Frame):  #intercambiador
     def __init__(self, parent):
         ttk.Frame.__init__(self, width="400", height="150")
@@ -82,10 +88,12 @@ class Exchanger(ttk.Frame):  #intercambiador
         self.OutCurrencyCombo.bind('<<ComboboxSelected>>', self.convertirDivisas) 
 
         url = self.all_symbols_ep.format(self.api_key)
-        self.accesoAPI(url, self.getCurrencies)        # url, callback
-        
+        try:
+            self.accesoAPI(url, self.getCurrencies)        # url, callback = self.getCurrencies
+        except APIAccessError as e:                           # EXception es para capturar cualquier excepción
+            self.lblErrores.config(text=e.cause)
 
-    def validarCantidad(self, *args):
+    def validarCantidad(self, *args):    # *args por el metodo trace, 'w' es cada vez que se escribe o modifica. ## LLama a self.convertirDivisas
         try:
             v = float(self.strInQuantity.get())
             self.oldInQuantity = v
@@ -94,18 +102,22 @@ class Exchanger(ttk.Frame):  #intercambiador
             self.strInQuantity.set(self.oldInQuantity)   # get coger, set meter.
     
 
-    def accesoAPI(self, url, callback):    #recoge la url y comprueba que es correcta =200
-        response = requests.get(url)
+    def accesoAPI(self, url, callback, **args):    #recoge la url y comprueba que es correcta =200    #callback = self.getCurrencies
+        try:
+            response = requests.get(url)
+        except requests.exceptions.ConnectionError as e:
+            print(e)
+            raise APIAccessError('Error de conexion al servidor')
 
         if response.status_code ==200:
-            callback(response.text)     #self.getCurrencies
+            callback(response.text, **args)     # callback es el response.text de la url que le hayas metido y **args
         else:
-            msgError ='Error en acceso a {}. response-code: {}'.format(url, response.status_code)
-            raise Exception(msgError)    # EXception es para capturar cualquier excepción IMPORTANTE, msgError el mensajer que saldrá
+            msgError ='{} - {}'.format(response.status_code, url)
+            raise APIAccessError(msgError)    # EXception es para capturar cualquier excepción IMPORTANTE, msgError el mensajer que saldrá
 
 
 
-    def convertirDivisas(self,  *args):
+    def convertirDivisas(self, *args):    # *args por el metodo <<combobox>>
         base = 'EUR'
         _from =self.strInCurrency.get()
         _from = _from[0:3]
@@ -114,29 +126,29 @@ class Exchanger(ttk.Frame):  #intercambiador
 
         symbols = _from+','+_to
        
-        if self.strInCurrency.get() and self.strOutCurrency and self.strInQuantity:   # comprueba que tenga todos los valores antes de intentar realizar los calculos
-            # strInCurrency
+        if self.strInCurrency.get() and self.strOutCurrency.get() and self.strInQuantity.get():   # comprueba que tenga todos los valores antes de intentar realizar los calculos
             self.lblErrores.config(text='Conectando...')
 
             url = self.rate_ep.format(self.api_key, base, symbols)
-            self.accesoAPI(url, self.showConversionRate)
+            try:
+                self.accesoAPI(url, self.showConversionRate, From=_from, To=_to)   # self.showConversionRate = callback (response.text) de la última url que le ha metido.
+                                                    # **args diccionario donde guardar lo que quieras, en este caso From=_from, To=_to
+            except APIAccessError as e:
+                self.lblErrores.config(text=e.cause)
 
-           
-            
-
-    def showConversionRate(self, textdata):
+    def showConversionRate(self, textdata, **args):
         data = json.loads(textdata)
         if data['success']:
-            tasa_conversion = (data['rates'][_from])    #Devuelve el valor de _from
-            tasa_conversion2 = (data['rates'][_to])    #Devuelve el valor de _to
-            self.lblErrores.config(text='')
+            tasa_conversion = data['rates'][args['From']]  ## accede a **args (diccionario donde guardar lo que quieras), en este caso From=_from, To=_to
+            tasa_conversion2 = data['rates'][args['To']]
         else:
             msgError = '{} - {}'.format(data['error']['code'], data['error']['type'])
             print(msgError)
-            raise Exception(msgError)
+            raise APIAccessError(msgError)
 
         valor_label = round(float(self.strInQuantity.get()) / tasa_conversion * tasa_conversion2, 5)
         self.outQuantityLbl.config(text=valor_label)   #mete en el label de salida el resultado con un config(text=...)
+        
 
     def getCurrencies(self, textdata):       # textdata = callback(response.text)  linea 101
         currencies = json.loads(textdata)    #pasa el json para darle estructura de diccionario.
@@ -146,8 +158,8 @@ class Exchanger(ttk.Frame):  #intercambiador
             text = '{} - {}'.format(symbol, self.symbols[symbol])   #  symbol para las claves de symbols   y symbols[symbol]) para los valores.
             result.append(text)
         
-        self.inCurrencyCombo.config(values=result)
-        self.OutCurrencyCombo.config(values=result)
+        self.inCurrencyCombo.config(values=result)   #le añade al combobox los símbolos.
+        self.OutCurrencyCombo.config(values=result)     #le añade al combobox los símbolos.
       
            
         

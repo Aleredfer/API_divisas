@@ -1,0 +1,4 @@
+  else:
+                msgError= "Se ha producido un error al consultar fixer.io"+ response.status_code
+                self.lblErrores.config(text=msgError)
+                return
